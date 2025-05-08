@@ -4,43 +4,52 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Color by Number</title>
-    <link rel = "stylesheet" href =/static/style.css>
-    <style>
-        .download-buttons { margin-top: 15px; display: flex; gap: 10px; justify-content: center; }
-        .download-buttons button { background-color: #28a745; font-size: 14px; padding: 8px 12px;}
-        .download-buttons button:hover { background-color: #218838; }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
+
+    
 </head>
 <body>
     <div class="container">
         <h1>Advanced Color by Number Generator</h1>
         
-        <label for="imageUpload">Upload Image (PNG with transparency recommended for "no BG"):</label>
+        <label for="imageUpload">Upload Image:</label>
         <input type="file" id="imageUpload" accept="image/png, image/jpeg, image/gif">
         <img id="originalImagePreview" src="#" alt="Original Preview" style="display:none;"/>
 
-        <label for="numColors">Number of Colors (2-32):</label>
-        <input type="number" id="numColors" value="8" min="2" max="32">
+        <fieldset class="settings-group">
+            <legend>Color & Detail</legend>
+            <label for="numColors">Number of Colors (2-32):</label>
+            <input type="number" id="numColors" value="8" min="2" max="32">
+            
+            <label for="lineSensitivity">Line Detail:</label>
+            <select id="lineSensitivity">
+                <option value="medium" selected>Medium</option>
+                <option value="low">Low (Fewer/Bolder Lines)</option>
+                <option value="high">High (More/Finer Lines)</option>
+            </select>
+        </fieldset>
 
-        <label for="fontSize">Number Font Size (px, e.g., 10-30):</label>
-        <input type="number" id="fontSize" value="15" min="8" max="50">
+        <fieldset class="settings-group">
+            <legend>Numbering</legend>
+            <label for="fontSize">Number Font Size (px, e.g., 10-30):</label>
+            <input type="number" id="fontSize" value="15" min="8" max="50">
+        </fieldset>
+        
+        <fieldset class="settings-group">
+            <legend>Advanced Options</legend>
+            <div class="checkbox-group">
+                <input type="checkbox" id="mergeSmallRegions" name="mergeSmallRegions">
+                <label for="mergeSmallRegions">Merge small regions</label>
+            </div>
+            <div id="mergeOptions" style="display:none; margin-left: 20px; margin-top: 10px; margin-bottom: 0;">
+                <label for="minMergeAreaPercent" style="font-size: 0.9em;" title="Regions smaller than this percentage of the image will be merged.">Min area to keep (% of total):</label>
+                <input type="number" id="minMergeAreaPercent" value="0.1" step="0.05" min="0.01" max="5" style="width: 120px; padding: 8px;">
+            </div>
+        </fieldset>
 
         <button id="processButton" disabled>Generate Color by Number</button>
         <div class="loader" id="loader"></div>
         <div class="error-message" id="errorMessage"></div>
-        <!-- ... (other inputs) ... -->
-      
-
-        <div>
-            <input type="checkbox" id="mergeSmallRegions" name="mergeSmallRegions" style="display: inline-block; width: auto; margin-bottom: 0;">
-            <label for="mergeSmallRegions" style="display: inline; font-weight: normal;">Merge small regions</label>
-        </div>
-        <div id="mergeOptions" style="display:none; margin-left: 20px; margin-bottom: 10px;">
-            <label for="minMergeAreaPercent" style="font-size: 0.9em;">Min area to keep (% of total, e.g., 0.1):</label>
-            <input type="number" id="minMergeAreaPercent" value="0.1" step="0.05" min="0.01" max="5" style="width: 100px; padding: 5px;">
-        </div>
-
-        
     </div>
 
     <div class="outputs">
@@ -76,26 +85,29 @@
         const originalImagePreview = document.getElementById('originalImagePreview');
         const numColorsInput = document.getElementById('numColors');
         const fontSizeInput = document.getElementById('fontSize');
+        const lineSensitivitySelect = document.getElementById('lineSensitivity'); // New
+        const mergeSmallRegionsCheckbox = document.getElementById('mergeSmallRegions');
+        const mergeOptionsDiv = document.getElementById('mergeOptions');
+        const minMergeAreaPercentInput = document.getElementById('minMergeAreaPercent');
         const processButton = document.getElementById('processButton');
         const loader = document.getElementById('loader');
         const errorMessage = document.getElementById('errorMessage');
 
         const quantizedOutput = document.getElementById('quantizedOutput');
         const quantizedImage = document.getElementById('quantizedImage');
-        const lineArtOutput = document.getElementById('lineArtOutput');
-        const lineArtImage = document.getElementById('lineArtImage');
-        const colorLegend = document.getElementById('colorLegend');
-
         const bgRemovedOutput = document.getElementById('bgRemovedOutput');
         const bgRemovedImage = document.getElementById('bgRemovedImage');
-        const lineArtImagePng = document.getElementById('lineArtImagePng'); // Renamed for clarity
+        const lineArtOutput = document.getElementById('lineArtOutput');
+        const lineArtImagePng = document.getElementById('lineArtImagePng'); 
+        const colorLegend = document.getElementById('colorLegend');
 
         const downloadQuantizedPngBtn = document.getElementById('downloadQuantizedPng');
         const downloadBgRemovedPngBtn = document.getElementById('downloadBgRemovedPng');
         const downloadLineArtPngBtn = document.getElementById('downloadLineArtPng');
         const downloadLineArtSvgBtn = document.getElementById('downloadLineArtSvg');
 
-        let currentResultData = null; // To store the latest results
+        let uploadedImageDataUrl = null;
+        let currentResultData = null; 
 
         imageUpload.addEventListener('change', (event) => {
             const file = event.target.files[0];
@@ -106,9 +118,11 @@
                     originalImagePreview.src = uploadedImageDataUrl;
                     originalImagePreview.style.display = 'block';
                     processButton.disabled = false;
-                    errorMessage.textContent = ''; // Clear previous errors
+                    errorMessage.textContent = ''; 
                     quantizedOutput.style.display = 'none';
+                    bgRemovedOutput.style.display = 'none';
                     lineArtOutput.style.display = 'none';
+                    currentResultData = null; 
                 };
                 reader.readAsDataURL(file);
             } else {
@@ -116,22 +130,11 @@
                 originalImagePreview.style.display = 'none';
                 processButton.disabled = true;
             }
-
-
-            quantizedOutput.style.display = 'none';
-            bgRemovedOutput.style.display = 'none'; // Hide new output group
-            lineArtOutput.style.display = 'none';
-            currentResultData = null; // Reset stored data
         });
-
-        const mergeSmallRegionsCheckbox = document.getElementById('mergeSmallRegions');
-        const mergeOptionsDiv = document.getElementById('mergeOptions');
-        const minMergeAreaPercentInput = document.getElementById('minMergeAreaPercent');
 
         mergeSmallRegionsCheckbox.addEventListener('change', function() {
             mergeOptionsDiv.style.display = this.checked ? 'block' : 'none';
         });
-
 
         processButton.addEventListener('click', async () => {
             if (!uploadedImageDataUrl) {
@@ -147,7 +150,6 @@
             lineArtOutput.style.display = 'none';
             currentResultData = null;
 
-
             try {
                 const response = await fetch('/process_image', {
                     method: 'POST',
@@ -156,33 +158,31 @@
                         imageDataUrl: uploadedImageDataUrl,
                         numColors: parseInt(numColorsInput.value),
                         fontSize: parseInt(fontSizeInput.value),
-                        mergeSmallRegions: mergeSmallRegionsCheckbox.checked, // Send new flag
-                        minMergeAreaPercent: parseFloat(minMergeAreaPercentInput.value) // Send threshold
+                        lineSensitivity: lineSensitivitySelect.value, // Send line sensitivity
+                        mergeSmallRegions: mergeSmallRegionsCheckbox.checked,
+                        minMergeAreaPercent: parseFloat(minMergeAreaPercentInput.value)
                     }),
                 });
 
                 if (!response.ok) {
-                    // Handle server-side errors
                     let errorPayload;
                     try {
-                        errorPayload = await response.json(); // Attempt to read error JSON once
+                        errorPayload = await response.json(); 
                     } catch (e) {
-                        errorPayload = { error: `Server error: ${response.status} (Response not JSON or parsing failed)` };
+                        errorPayload = { error: `Server error: ${response.status} (Response not JSON)` };
                     }
                     throw new Error(errorPayload.error || `Server error: ${response.status}`);
                 }
 
-                // If response.ok is true, parse the JSON body ONCE
-                const resultData = await response.json(); // Read the body and store it
-                currentResultData = resultData; // Assign to your global variable for download buttons
+                const resultData = await response.json(); 
+                currentResultData = resultData; 
 
-                // Now use 'resultData' (or 'currentResultData') for all UI updates
                 quantizedImage.src = 'data:image/png;base64,' + resultData.quantized_image_b64;
-                bgRemovedImage.src = 'data:image/png;base64,' + resultData.bg_removed_char_b64; // Make sure this is displayed
+                bgRemovedImage.src = 'data:image/png;base64,' + resultData.bg_removed_char_b64; 
                 lineArtImagePng.src = 'data:image/png;base64,' + resultData.line_art_png_b64;
                 
                 quantizedOutput.style.display = 'block';
-                bgRemovedOutput.style.display = 'block'; // Make sure this is displayed
+                bgRemovedOutput.style.display = 'block'; 
                 lineArtOutput.style.display = 'block';
 
                 generateLegend(resultData.palette_rgb);
@@ -192,25 +192,22 @@
                 errorMessage.textContent = 'Error processing image: ' + error.message;
             } finally {
                 loader.style.display = 'none';
-                if (uploadedImageDataUrl) { // Only re-enable if an image is still selected
+                if (uploadedImageDataUrl) { 
                     processButton.disabled = false;
                 }
             }
         });
 
         function generateLegend(palette) {
-            colorLegend.innerHTML = ''; // Clear previous legend
+            colorLegend.innerHTML = '';
             palette.forEach((color_rgb, index) => {
                 const item = document.createElement('div');
                 item.className = 'legend-item';
-                
                 const colorBox = document.createElement('div');
                 colorBox.className = 'legend-color';
                 colorBox.style.backgroundColor = `rgb(${color_rgb[0]}, ${color_rgb[1]}, ${color_rgb[2]})`;
-                
                 const numberText = document.createElement('span');
                 numberText.textContent = index + 1;
-                
                 item.appendChild(colorBox);
                 item.appendChild(numberText);
                 colorLegend.appendChild(item);
@@ -227,7 +224,7 @@
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
         }
-        
+
         function b64toBlob(b64Data, contentType='', sliceSize=512) {
             const byteCharacters = atob(b64Data);
             const byteArrays = [];
@@ -249,7 +246,7 @@
                 triggerDownload(blob, 'quantized_preview.png');
             }
         });
-        
+
         downloadBgRemovedPngBtn.addEventListener('click', () => {
             if (currentResultData && currentResultData.bg_removed_char_b64) {
                 const blob = b64toBlob(currentResultData.bg_removed_char_b64, 'image/png');
@@ -259,7 +256,7 @@
 
         downloadLineArtPngBtn.addEventListener('click', () => {
             if (currentResultData && currentResultData.line_art_png_b64) {
-                 const blob = b64toBlob(currentResultData.line_art_png_b64, 'image/png');
+                const blob = b64toBlob(currentResultData.line_art_png_b64, 'image/png');
                 triggerDownload(blob, 'line_art.png');
             }
         });
@@ -270,7 +267,7 @@
                 triggerDownload(blob, 'line_art.svg');
             }
         });
-
+        
     </script>
 </body>
 </html>
