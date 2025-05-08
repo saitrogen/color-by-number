@@ -28,6 +28,19 @@
         <button id="processButton" disabled>Generate Color by Number</button>
         <div class="loader" id="loader"></div>
         <div class="error-message" id="errorMessage"></div>
+        <!-- ... (other inputs) ... -->
+      
+
+        <div>
+            <input type="checkbox" id="mergeSmallRegions" name="mergeSmallRegions" style="display: inline-block; width: auto; margin-bottom: 0;">
+            <label for="mergeSmallRegions" style="display: inline; font-weight: normal;">Merge small regions</label>
+        </div>
+        <div id="mergeOptions" style="display:none; margin-left: 20px; margin-bottom: 10px;">
+            <label for="minMergeAreaPercent" style="font-size: 0.9em;">Min area to keep (% of total, e.g., 0.1):</label>
+            <input type="number" id="minMergeAreaPercent" value="0.1" step="0.05" min="0.01" max="5" style="width: 100px; padding: 5px;">
+        </div>
+
+        
     </div>
 
     <div class="outputs">
@@ -111,6 +124,14 @@
             currentResultData = null; // Reset stored data
         });
 
+        const mergeSmallRegionsCheckbox = document.getElementById('mergeSmallRegions');
+        const mergeOptionsDiv = document.getElementById('mergeOptions');
+        const minMergeAreaPercentInput = document.getElementById('minMergeAreaPercent');
+
+        mergeSmallRegionsCheckbox.addEventListener('change', function() {
+            mergeOptionsDiv.style.display = this.checked ? 'block' : 'none';
+        });
+
 
         processButton.addEventListener('click', async () => {
             if (!uploadedImageDataUrl) {
@@ -134,7 +155,9 @@
                     body: JSON.stringify({
                         imageDataUrl: uploadedImageDataUrl,
                         numColors: parseInt(numColorsInput.value),
-                        fontSize: parseInt(fontSizeInput.value)
+                        fontSize: parseInt(fontSizeInput.value),
+                        mergeSmallRegions: mergeSmallRegionsCheckbox.checked, // Send new flag
+                        minMergeAreaPercent: parseFloat(minMergeAreaPercentInput.value) // Send threshold
                     }),
                 });
 
