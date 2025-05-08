@@ -56,6 +56,8 @@
 5.  **Download:** Use the download buttons beneath each output to save the images as PNG or SVG (for line art).
 
 ![Application Screenshot](docs/img1.png)
+![Application Screenshot](docs/img2.png)
+
 
 ## Workflow Overview
 
