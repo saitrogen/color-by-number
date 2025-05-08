@@ -3,7 +3,7 @@
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <https://github.com/saitrogen/color-by-number>
+    git clone https://github.com/saitrogen/color-by-number
     cd color_by_number_app
     ```
 
