@@ -139,42 +139,40 @@
                 });
 
                 if (!response.ok) {
-
-
-                    const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
-                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                    // Handle server-side errors
+                    let errorPayload;
+                    try {
+                        errorPayload = await response.json(); // Attempt to read error JSON once
+                    } catch (e) {
+                        errorPayload = { error: `Server error: ${response.status} (Response not JSON or parsing failed)` };
+                    }
+                    throw new Error(errorPayload.error || `Server error: ${response.status}`);
                 }
 
-                const result = await response.json();
+                // If response.ok is true, parse the JSON body ONCE
+                const resultData = await response.json(); // Read the body and store it
+                currentResultData = resultData; // Assign to your global variable for download buttons
 
-                quantizedImage.src = 'data:image/png;base64,' + result.quantized_image_b64;
-                lineArtImagePng.src = 'data:image/png;base64,' + result.line_art_image_b64;
-                // renamed for clarity
-
-                quantizedOutput.style.display = 'block';
-                lineArtOutput.style.display = 'block';
-
-                generateLegend(result.palette_rgb);
-
-                // -----
-
-                currentResultData = await response.json(); // Store the full result
-
-                quantizedImage.src = 'data:image/png;base64,' + currentResultData.quantized_image_b64;
-                bgRemovedImage.src = 'data:image/png;base64,' + currentResultData.bg_removed_char_b64;
-                lineArtImagePng.src = 'data:image/png;base64,' + currentResultData.line_art_png_b64;
+                // Now use 'resultData' (or 'currentResultData') for all UI updates
+                quantizedImage.src = 'data:image/png;base64,' + resultData.quantized_image_b64;
+                bgRemovedImage.src = 'data:image/png;base64,' + resultData.bg_removed_char_b64; // Make sure this is displayed
+                lineArtImagePng.src = 'data:image/png;base64,' + resultData.line_art_png_b64;
                 
                 quantizedOutput.style.display = 'block';
-                bgRemovedOutput.style.display = 'block';
+                bgRemovedOutput.style.display = 'block'; // Make sure this is displayed
                 lineArtOutput.style.display = 'block';
 
-                generateLegend(currentResultData.palette_rgb);
+                generateLegend(resultData.palette_rgb);
 
             } catch (error)  {
                 console.error('Error:', error);
-                errorMessage.textContent = 'Error processing image: ' + error.message;}
-            finally { loader.style.display = 'none';
-            processButton.disabled = false; }
+                errorMessage.textContent = 'Error processing image: ' + error.message;
+            } finally {
+                loader.style.display = 'none';
+                if (uploadedImageDataUrl) { // Only re-enable if an image is still selected
+                    processButton.disabled = false;
+                }
+            }
         });
 
         function generateLegend(palette) {
