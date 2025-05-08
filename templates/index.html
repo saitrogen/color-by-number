@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Color by Number</title>
+    <link rel="stylesheet" href="/static/style.css">
+    
+</head>
+<body>
+    <div class="container">
+        <h1>Advanced Color by Number Generator</h1>
+        
+        <label for="imageUpload">Upload Image (PNG with transparency recommended for "no BG"):</label>
+        <input type="file" id="imageUpload" accept="image/png, image/jpeg, image/gif">
+        <img id="originalImagePreview" src="#" alt="Original Preview" style="display:none;"/>
+
+
+        <label for="numColors">Number of Colors (2-32):</label>
+        <input type="number" id="numColors" value="8" min="2" max="32">
+
+        <label for="fontSize">Number Font Size (px, e.g., 10-30):</label>
+        <input type="number" id="fontSize" value="15" min="8" max="50">
+
+        <button id="processButton" disabled>Generate Color by Number</button>
+        <div class="loader" id="loader"></div>
+        <div class="error-message" id="errorMessage"></div>
+    </div>
+
+    <div class="outputs">
+        <div class="output-group" id="quantizedOutput" style="display:none;">
+            <h2>Colored Preview</h2>
+            <img id="quantizedImage" src="#" alt="Quantized Image">
+        </div>
+        <div class="output-group" id="lineArtOutput" style="display:none;">
+            <h2>Line Art with Numbers</h2>
+            <img id="lineArtImage" src="#" alt="Line Art with Numbers">
+            <div class="legend" id="colorLegend"></div>
+        </div>
+    </div>
+
+    <script>
+        const imageUpload = document.getElementById('imageUpload');
+        const originalImagePreview = document.getElementById('originalImagePreview');
+        const numColorsInput = document.getElementById('numColors');
+        const fontSizeInput = document.getElementById('fontSize');
+        const processButton = document.getElementById('processButton');
+        const loader = document.getElementById('loader');
+        const errorMessage = document.getElementById('errorMessage');
+
+        const quantizedOutput = document.getElementById('quantizedOutput');
+        const quantizedImage = document.getElementById('quantizedImage');
+        const lineArtOutput = document.getElementById('lineArtOutput');
+        const lineArtImage = document.getElementById('lineArtImage');
+        const colorLegend = document.getElementById('colorLegend');
+
+        let uploadedImageDataUrl = null;
+
+        imageUpload.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    uploadedImageDataUrl = e.target.result;
+                    originalImagePreview.src = uploadedImageDataUrl;
+                    originalImagePreview.style.display = 'block';
+                    processButton.disabled = false;
+                    errorMessage.textContent = ''; // Clear previous errors
+                    quantizedOutput.style.display = 'none';
+                    lineArtOutput.style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            } else {
+                uploadedImageDataUrl = null;
+                originalImagePreview.style.display = 'none';
+                processButton.disabled = true;
+            }
+        });
+
+        processButton.addEventListener('click', async () => {
+            if (!uploadedImageDataUrl) {
+                errorMessage.textContent = 'Please upload an image first.';
+                return;
+            }
+
+            loader.style.display = 'block';
+            processButton.disabled = true;
+            errorMessage.textContent = '';
+            quantizedOutput.style.display = 'none';
+            lineArtOutput.style.display = 'none';
+
+            try {
+                const response = await fetch('/process_image', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        imageDataUrl: uploadedImageDataUrl,
+                        numColors: parseInt(numColorsInput.value),
+                        fontSize: parseInt(fontSizeInput.value)
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
+                    throw new Error(errorData.error || `Server error: ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                quantizedImage.src = 'data:image/png;base64,' + result.quantized_image_b64;
+                lineArtImage.src = 'data:image/png;base64,' + result.line_art_image_b64;
+                
+                quantizedOutput.style.display = 'block';
+                lineArtOutput.style.display = 'block';
+
+                generateLegend(result.palette_rgb);
+
+            } catch (error) {
+                console.error('Error:', error);
+                errorMessage.textContent = 'Error processing image: ' + error.message;
+            } finally {
+                loader.style.display = 'none';
+                processButton.disabled = false;
+            }
+        });
+
+        function generateLegend(palette) {
+            colorLegend.innerHTML = ''; // Clear previous legend
+            palette.forEach((color_rgb, index) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                
+                const colorBox = document.createElement('div');
+                colorBox.className = 'legend-color';
+                colorBox.style.backgroundColor = `rgb(${color_rgb[0]}, ${color_rgb[1]}, ${color_rgb[2]})`;
+                
+                const numberText = document.createElement('span');
+                numberText.textContent = index + 1;
+                
+                item.appendChild(colorBox);
+                item.appendChild(numberText);
+                colorLegend.appendChild(item);
+            });
+        }
+    </script>
+</body>
+</html>
