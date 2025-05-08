@@ -181,23 +181,56 @@ def process_image_route():
                         cx = int(M["m10"] / M["m00"])
                         cy = int(M["m01"] / M["m00"])
                         
-                        if cv2.pointPolygonTest(contour, (cx, cy), False) >= 0:
-                            # Draw number on the line_art_pil_for_png (which now has Canny edges)
+                        # --- Improved Number Placement Logic ---
+                        # Check if centroid is reasonably inside
+                        # The 'measureDist=True' returns signed distance. Positive means inside.
+                        dist_to_edge = cv2.pointPolygonTest(contour, (float(cx), float(cy)), True)
+
+                        # Target point for the number
+                        tx, ty = cx, cy
+
+                        font_size_for_check = font_size_param # Use the actual font size
+
+                        # If centroid is too close to edge or outside, try to find a better spot
+                        # This is a heuristic: move towards "center of mass" of a bounding box
+                        # if centroid is problematic.
+                        if dist_to_edge < font_size_for_check * 0.5: # If distance is less than half font height
+                            # Try using the center of the bounding rectangle as an alternative candidate
+                            # if the centroid is too close to an edge or outside.
+                            x_br, y_br, w_br, h_br = cv2.boundingRect(contour)
+                            alt_tx, alt_ty = x_br + w_br // 2, y_br + h_br // 2
+                            
+                            # Check if this alternative point is better
+                            alt_dist_to_edge = cv2.pointPolygonTest(contour, (float(alt_tx), float(alt_ty)), True)
+                            
+                            if alt_dist_to_edge > dist_to_edge and alt_dist_to_edge > font_size_for_check * 0.3:
+                                tx, ty = alt_tx, alt_ty
+                                dist_to_edge = alt_dist_to_edge # Update dist_to_edge for the chosen point
+                            # If even the alternative is bad, we might stick with the original centroid,
+                            # or skip numbering if no good point is found. For now, we'll proceed.
+
+                        # Proceed to draw if the chosen point is at least somewhat inside
+                        # or if the region is large enough that a slightly off number is acceptable.
+                        # We mainly want to avoid numbers clearly outside the region.
+                        if dist_to_edge > - (font_size_for_check * 0.2) : # Allow slightly outside if region is large
                             try:
-                                bbox = draw_png.textbbox((cx, cy), color_number_str, font=current_font, anchor="mm")
-                                text_x_png = cx - (bbox[2] - bbox[0]) // 2
-                                text_y_png = cy - (bbox[3] - bbox[1]) // 2
+                                # Use tx, ty for text drawing
+                                bbox = draw_png.textbbox((tx, ty), color_number_str, font=current_font, anchor="mm")
+                                text_x_png = tx - (bbox[2] - bbox[0]) // 2
+                                text_y_png = ty - (bbox[3] - bbox[1]) // 2
                                 draw_png.text((text_x_png, text_y_png), color_number_str, fill="black", font=current_font)
+                                all_texts_for_svg.append({'text': color_number_str, 'x': tx, 'y': ty, 'size': font_size_param})
                             except Exception as e_font:
                                 print(f"Error drawing text with Pillow: {e_font}")
-                                # Fallback: draw with OpenCV on a temporary canvas if Pillow fails
+                                # Fallback (as before)
                                 temp_cv_img_for_text = np.array(line_art_pil_for_png.convert("RGB"))
                                 temp_cv_img_for_text = cv2.cvtColor(temp_cv_img_for_text, cv2.COLOR_RGB2BGR)
-                                cv2.putText(temp_cv_img_for_text, color_number_str, (cx, cy), cv2.FONT_HERSHEY_SIMPLEX, font_size_param / 25.0, (0,0,0), 1, cv2.LINE_AA)
+                                cv2.putText(temp_cv_img_for_text, color_number_str, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_size_param / 25.0, (0,0,0), 1, cv2.LINE_AA)
                                 line_art_pil_for_png = opencv_to_pil(temp_cv_img_for_text).convert("RGBA")
                                 draw_png = ImageDraw.Draw(line_art_pil_for_png) # Re-init draw object
-                            
-                            all_texts_for_svg.append({'text': color_number_str, 'x': cx, 'y': cy, 'size': font_size_param})
+                                all_texts_for_svg.append({'text': color_number_str, 'x': tx, 'y': ty, 'size': font_size_param}) # ensure SVG gets updated
+                        else:
+                            print(f"Skipping number for region {color_number_str} as no good placement found (cx:{cx},cy:{cy}, dist:{dist_to_edge:.2f}). Area: {cv2.contourArea(contour)}")
         
         # --- Prepare outputs ---
         bg_removed_colored_char_pil = quantized_pil_final_rgba.copy()
