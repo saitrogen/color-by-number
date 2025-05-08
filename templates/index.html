@@ -4,8 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Advanced Color by Number</title>
-    <link rel="stylesheet" href="/static/style.css">
-    
+    <link rel = "stylesheet" href =/static/style.css>
+    <style>
+        .download-buttons { margin-top: 15px; display: flex; gap: 10px; justify-content: center; }
+        .download-buttons button { background-color: #28a745; font-size: 14px; padding: 8px 12px;}
+        .download-buttons button:hover { background-color: #218838; }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -14,7 +18,6 @@
         <label for="imageUpload">Upload Image (PNG with transparency recommended for "no BG"):</label>
         <input type="file" id="imageUpload" accept="image/png, image/jpeg, image/gif">
         <img id="originalImagePreview" src="#" alt="Original Preview" style="display:none;"/>
-
 
         <label for="numColors">Number of Colors (2-32):</label>
         <input type="number" id="numColors" value="8" min="2" max="32">
@@ -31,11 +34,27 @@
         <div class="output-group" id="quantizedOutput" style="display:none;">
             <h2>Colored Preview</h2>
             <img id="quantizedImage" src="#" alt="Quantized Image">
+            <div class="download-buttons">
+                <button id="downloadQuantizedPng">Download PNG</button>
+            </div>
         </div>
+
+        <div class="output-group" id="bgRemovedOutput" style="display:none;">
+            <h2>BG Removed Character</h2>
+            <img id="bgRemovedImage" src="#" alt="Background Removed Character">
+             <div class="download-buttons">
+                <button id="downloadBgRemovedPng">Download PNG</button>
+            </div>
+        </div>
+
         <div class="output-group" id="lineArtOutput" style="display:none;">
             <h2>Line Art with Numbers</h2>
-            <img id="lineArtImage" src="#" alt="Line Art with Numbers">
+            <img id="lineArtImagePng" src="#" alt="Line Art PNG">
             <div class="legend" id="colorLegend"></div>
+            <div class="download-buttons">
+                <button id="downloadLineArtPng">Download PNG</button>
+                <button id="downloadLineArtSvg">Download SVG</button>
+            </div>
         </div>
     </div>
 
@@ -54,7 +73,16 @@
         const lineArtImage = document.getElementById('lineArtImage');
         const colorLegend = document.getElementById('colorLegend');
 
-        let uploadedImageDataUrl = null;
+        const bgRemovedOutput = document.getElementById('bgRemovedOutput');
+        const bgRemovedImage = document.getElementById('bgRemovedImage');
+        const lineArtImagePng = document.getElementById('lineArtImagePng'); // Renamed for clarity
+
+        const downloadQuantizedPngBtn = document.getElementById('downloadQuantizedPng');
+        const downloadBgRemovedPngBtn = document.getElementById('downloadBgRemovedPng');
+        const downloadLineArtPngBtn = document.getElementById('downloadLineArtPng');
+        const downloadLineArtSvgBtn = document.getElementById('downloadLineArtSvg');
+
+        let currentResultData = null; // To store the latest results
 
         imageUpload.addEventListener('change', (event) => {
             const file = event.target.files[0];
@@ -75,7 +103,14 @@
                 originalImagePreview.style.display = 'none';
                 processButton.disabled = true;
             }
+
+
+            quantizedOutput.style.display = 'none';
+            bgRemovedOutput.style.display = 'none'; // Hide new output group
+            lineArtOutput.style.display = 'none';
+            currentResultData = null; // Reset stored data
         });
+
 
         processButton.addEventListener('click', async () => {
             if (!uploadedImageDataUrl) {
@@ -87,14 +122,15 @@
             processButton.disabled = true;
             errorMessage.textContent = '';
             quantizedOutput.style.display = 'none';
+            bgRemovedOutput.style.display = 'none';
             lineArtOutput.style.display = 'none';
+            currentResultData = null;
+
 
             try {
                 const response = await fetch('/process_image', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'application/json', },
                     body: JSON.stringify({
                         imageDataUrl: uploadedImageDataUrl,
                         numColors: parseInt(numColorsInput.value),
@@ -103,6 +139,8 @@
                 });
 
                 if (!response.ok) {
+
+
                     const errorData = await response.json().catch(() => ({ error: `Server error: ${response.status}` }));
                     throw new Error(errorData.error || `Server error: ${response.status}`);
                 }
@@ -110,20 +148,33 @@
                 const result = await response.json();
 
                 quantizedImage.src = 'data:image/png;base64,' + result.quantized_image_b64;
-                lineArtImage.src = 'data:image/png;base64,' + result.line_art_image_b64;
-                
+                lineArtImagePng.src = 'data:image/png;base64,' + result.line_art_image_b64;
+                // renamed for clarity
+
                 quantizedOutput.style.display = 'block';
                 lineArtOutput.style.display = 'block';
 
                 generateLegend(result.palette_rgb);
 
-            } catch (error) {
+                // -----
+
+                currentResultData = await response.json(); // Store the full result
+
+                quantizedImage.src = 'data:image/png;base64,' + currentResultData.quantized_image_b64;
+                bgRemovedImage.src = 'data:image/png;base64,' + currentResultData.bg_removed_char_b64;
+                lineArtImagePng.src = 'data:image/png;base64,' + currentResultData.line_art_png_b64;
+                
+                quantizedOutput.style.display = 'block';
+                bgRemovedOutput.style.display = 'block';
+                lineArtOutput.style.display = 'block';
+
+                generateLegend(currentResultData.palette_rgb);
+
+            } catch (error)  {
                 console.error('Error:', error);
-                errorMessage.textContent = 'Error processing image: ' + error.message;
-            } finally {
-                loader.style.display = 'none';
-                processButton.disabled = false;
-            }
+                errorMessage.textContent = 'Error processing image: ' + error.message;}
+            finally { loader.style.display = 'none';
+            processButton.disabled = false; }
         });
 
         function generateLegend(palette) {
@@ -144,6 +195,61 @@
                 colorLegend.appendChild(item);
             });
         }
+
+        function triggerDownload(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        function b64toBlob(b64Data, contentType='', sliceSize=512) {
+            const byteCharacters = atob(b64Data);
+            const byteArrays = [];
+            for (let offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+                const slice = byteCharacters.slice(offset, offset + sliceSize);
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                byteArrays.push(byteArray);
+            }
+            return new Blob(byteArrays, {type: contentType});
+        }
+
+        downloadQuantizedPngBtn.addEventListener('click', () => {
+            if (currentResultData && currentResultData.quantized_image_b64) {
+                const blob = b64toBlob(currentResultData.quantized_image_b64, 'image/png');
+                triggerDownload(blob, 'quantized_preview.png');
+            }
+        });
+        
+        downloadBgRemovedPngBtn.addEventListener('click', () => {
+            if (currentResultData && currentResultData.bg_removed_char_b64) {
+                const blob = b64toBlob(currentResultData.bg_removed_char_b64, 'image/png');
+                triggerDownload(blob, 'bg_removed_character.png');
+            }
+        });
+
+        downloadLineArtPngBtn.addEventListener('click', () => {
+            if (currentResultData && currentResultData.line_art_png_b64) {
+                 const blob = b64toBlob(currentResultData.line_art_png_b64, 'image/png');
+                triggerDownload(blob, 'line_art.png');
+            }
+        });
+
+        downloadLineArtSvgBtn.addEventListener('click', () => {
+            if (currentResultData && currentResultData.line_art_svg_content) {
+                const blob = new Blob([currentResultData.line_art_svg_content], { type: 'image/svg+xml' });
+                triggerDownload(blob, 'line_art.svg');
+            }
+        });
+
     </script>
 </body>
 </html>
