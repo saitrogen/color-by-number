@@ -55,6 +55,8 @@
     *   **Line Art with Numbers:** Displays the generated line art with numbers and the corresponding color legend.
 5.  **Download:** Use the download buttons beneath each output to save the images as PNG or SVG (for line art).
 
+![Application Screenshot](imgq.png)
+
 ## Workflow Overview
 
 1.  **Client-Side (Browser):**
