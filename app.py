@@ -1,31 +1,27 @@
 # color_by_number_app/app.py
+
 from flask import Flask, request, jsonify, render_template
 import cv2
 import numpy as np
 from sklearn.cluster import KMeans
 from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
-import logging # For better logging
 
 # Local imports
 from utils.image_helpers import image_to_base64, opencv_to_pil, pil_to_opencv, decode_data_url
-from extensions.download_utils import download_bp, generate_svg_content 
+from extensions.download_utils import download_bp, generate_svg_content
 from extensions.region_processing_utils import merge_small_regions
+from extensions.image_enhancement_utils import apply_post_quantization_smoothing
 
 app = Flask(__name__)
-app.register_blueprint(download_bp, url_prefix='/downloads') 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-app.logger.setLevel(logging.INFO)
-
+app.register_blueprint(download_bp, url_prefix='/downloads')
 
 # --- FONT CONFIGURATION ---
 FONT_PATHS = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 
     "arial.ttf", 
-    "C:/Windows/Fonts/arial.ttf",
-    "/Library/Fonts/Arial.ttf",
+    "C:\\Windows\\Fonts\\arial.ttf", 
+    "/Library/Fonts/Arial.ttf", 
     "/System/Library/Fonts/Supplemental/Arial.ttf"
 ]
 DEFAULT_FONT_SIZE = 15
@@ -33,17 +29,16 @@ FONT = None
 for path in FONT_PATHS:
     try:
         FONT = ImageFont.truetype(path, DEFAULT_FONT_SIZE)
-        app.logger.info(f"Loaded font for main processing: {path}")
+        print(f"Loaded font for main processing: {path}")
         break
     except IOError:
-        app.logger.warning(f"Font not found or unreadable: {path}")
         pass
 if FONT is None:
     try:
         FONT = ImageFont.load_default()
-        app.logger.warning("Using default Pillow font for main processing.")
+        print("Warning: Using default Pillow font for main processing (text might be small).")
     except Exception as e:
-        app.logger.error(f"Could not load default Pillow font: {e}")
+        print(f"Critical: Could not load any specified fonts or default Pillow font: {e}")
         FONT = None
 
 def get_font(size):
@@ -51,13 +46,12 @@ def get_font(size):
         try:
             return ImageFont.truetype(FONT.path, size)
         except IOError:
-            app.logger.warning(f"Could not reload font {FONT.path} at size {size}. Falling back.")
-            return FONT 
-    elif FONT: 
-        return FONT 
-    app.logger.warning(f"No valid font found for size {size}. Text rendering may fail or use system default.")
-    return ImageFont.load_default() # Fallback to ensure ImageDraw doesn't crash
-
+            # print(f"Warning: Could not load font {FONT.path} at size {size}. Falling back to default size.")
+            return FONT
+    elif FONT:
+        return FONT
+    # print(f"Warning: No valid font object available for get_font(size={size}).")
+    return None
 
 @app.route('/')
 def index():
@@ -68,157 +62,167 @@ def process_image_route():
     try:
         data = request.get_json()
         image_data_url = data['imageDataUrl']
-        num_colors_requested = int(data.get('numColors', 8))
+        num_colors = int(data.get('numColors', 8))
         font_size_param = int(data.get('fontSize', DEFAULT_FONT_SIZE))
-        merge_regions_flag = data.get('mergeSmallRegions', False)
+        
+        line_sensitivity_str = data.get('lineSensitivity', 'medium')
+        should_merge_small_regions = data.get('mergeSmallRegions', False)
         min_merge_area_percent = float(data.get('minMergeAreaPercent', 0.1))
-        line_sensitivity = data.get('lineSensitivity', 'medium')
+        
+        enable_bg_removal_flag = data.get('enableBgRemoval', False)
+        selected_bg_color_rgb = data.get('selectedBgColor', None)
+        bg_color_tolerance = int(data.get('bgColorTolerance', 30))
 
-        app.logger.info(f"Processing request: {num_colors_requested} colors, font {font_size_param}px, merge: {merge_regions_flag} ({min_merge_area_percent}%), lines: {line_sensitivity}")
+        enable_smoothing_flag = data.get('enableSmoothing', False)
+        smoothing_ksize = int(data.get('smoothingKernelSize', 3))
 
-        # 1. Decode Image
         image_data_bytes = decode_data_url(image_data_url)
+        
         pil_image_orig = Image.open(BytesIO(image_data_bytes)).convert("RGBA")
-        img_np_rgba = np.array(pil_image_orig)
+        img_np_rgba_original = np.array(pil_image_orig) # Keep original RGBA for reference
         
-        original_alpha = None
-        if img_np_rgba.shape[2] == 4:
-            original_alpha = img_np_rgba[:, :, 3].copy()
-            img_np_rgb = img_np_rgba[:, :, :3]
+        original_alpha_channel_np = None # Alpha from the input image
+        if img_np_rgba_original.shape[2] == 4:
+            original_alpha_channel_np = img_np_rgba_original[:, :, 3].copy()
+            img_np_rgb_from_original = img_np_rgba_original[:, :, :3]
         else:
-            img_np_rgb = img_np_rgba
-            if len(img_np_rgb.shape) == 2:
-                 img_np_rgb = cv2.cvtColor(img_np_rgb, cv2.COLOR_GRAY2RGB)
+            img_np_rgb_from_original = img_np_rgba_original
+            if len(img_np_rgb_from_original.shape) == 2:
+                 img_np_rgb_from_original = cv2.cvtColor(img_np_rgb_from_original, cv2.COLOR_GRAY2RGB)
 
-        img_cv_bgr = cv2.cvtColor(img_np_rgb, cv2.COLOR_RGB2BGR)
-        h, w = img_cv_bgr.shape[:2]
+        img_cv_bgr_for_quantization = cv2.cvtColor(img_np_rgb_from_original, cv2.COLOR_RGB2BGR)
+        h, w = img_cv_bgr_for_quantization.shape[:2]
 
-        # 2. Initial Color Quantization
-        pixels = img_cv_bgr.reshape((-1, 3))
-        pixels = np.float32(pixels)
-        actual_num_colors_for_kmeans = max(2, num_colors_requested)
-        
-        kmeans = KMeans(n_clusters=actual_num_colors_for_kmeans, random_state=42, n_init=10, tol=1e-3)
+        # 1. Color Quantization
+        pixels = img_cv_bgr_for_quantization.reshape((-1, 3)).astype(np.float32)
+        kmeans = KMeans(n_clusters=num_colors, random_state=42, n_init=10, tol=1e-3)
         kmeans.fit(pixels)
-        
-        palette_bgr_initial = kmeans.cluster_centers_.astype(np.uint8)
+        initial_palette_bgr_np = kmeans.cluster_centers_.astype(np.uint8)
         labels = kmeans.labels_
-        quantized_img_cv_bgr = palette_bgr_initial[labels].reshape((h, w, 3)).astype(np.uint8)
-        
-        current_palette_bgr = palette_bgr_initial.copy() # Start with initial palette
+        # This is the first version of our quantized image content
+        quantized_img_content_bgr = initial_palette_bgr_np[labels].reshape((h, w, 3))
 
-        # 3. Optional: Merge Small Regions
-        if merge_regions_flag:
-            app.logger.info(f"Attempting to merge small regions with threshold {min_merge_area_percent}%...")
-            quantized_img_cv_bgr, palette_bgr_merged_list = merge_small_regions(
-                quantized_img_cv_bgr.copy(), 
-                current_palette_bgr.tolist(), # Pass as list of lists
-                min_area_threshold_percent=min_merge_area_percent
+        # The palette that corresponds to quantized_img_content_bgr
+        current_processing_palette_bgr = initial_palette_bgr_np.tolist() 
+        
+        # 1.5 Apply Post-Quantization Smoothing if enabled
+        if enable_smoothing_flag:
+            print(f"Applying post-quantization smoothing with kernel size: {smoothing_ksize}")
+            # Smoothing uses the current content and its corresponding palette
+            quantized_img_content_bgr = apply_post_quantization_smoothing(
+                quantized_img_content_bgr, 
+                current_processing_palette_bgr, 
+                method="median", 
+                ksize=smoothing_ksize
             )
-            current_palette_bgr = np.array(palette_bgr_merged_list, dtype=np.uint8)
-            app.logger.info(f"Regions merged. New palette size: {len(current_palette_bgr)}")
+            # The palette (current_processing_palette_bgr) is NOT changed by smoothing itself,
+            # as smoothing re-snaps to the provided palette.
         
-        final_palette_rgb = [color[::-1].tolist() for color in current_palette_bgr]
+        # 2. (Optional) Merge Small Regions
+        if should_merge_small_regions:
+            print(f"Attempting to merge small regions with threshold: {min_merge_area_percent}%")
+            # Merging takes the current image content and its palette,
+            # and can return modified content AND a modified (potentially smaller) palette.
+            quantized_img_content_bgr, current_processing_palette_bgr = merge_small_regions(
+                quantized_img_content_bgr, 
+                current_processing_palette_bgr,
+                min_merge_area_percent
+            )
+            print(f"Region merging complete. New final palette size: {len(current_processing_palette_bgr)}")
+            if isinstance(current_processing_palette_bgr, np.ndarray): # Ensure it's a list for consistency
+                current_processing_palette_bgr = current_processing_palette_bgr.tolist()
 
-        # 4. Prepare Quantized Image with Alpha (for Previews)
-        quantized_pil_rgb_final = opencv_to_pil(quantized_img_cv_bgr) # Uses potentially merged image
-        quantized_pil_final_rgba = quantized_pil_rgb_final.convert("RGBA")
-        if original_alpha is not None:
-            quantized_pil_final_rgba.putalpha(Image.fromarray(original_alpha))
+        # `quantized_img_content_bgr` now holds the final BGR pixel data after all content processing.
+        # `current_processing_palette_bgr` is the final BGR palette corresponding to this content.
+        final_display_palette_rgb = [color[::-1] for color in current_processing_palette_bgr] # For legend
+
+        # --- Determine the Alpha Channel to Apply ---
+        final_applied_alpha_pil = None
+        if enable_bg_removal_flag and selected_bg_color_rgb:
+            print(f"BG Removal: Using selected color {selected_bg_color_rgb} with tolerance {bg_color_tolerance}")
+            bg_color_np_rgb = np.array(selected_bg_color_rgb, dtype=np.uint8)
+            # Compare against the original RGB image data for accuracy
+            diff = np.abs(img_np_rgb_from_original.astype(np.int16) - bg_color_np_rgb.astype(np.int16))
+            is_background_mask = np.all(diff <= bg_color_tolerance, axis=2)
+            alpha_channel_content_np = np.where(is_background_mask, 0, 255).astype(np.uint8)
+            final_applied_alpha_pil = Image.fromarray(alpha_channel_content_np)
+        elif original_alpha_channel_np is not None:
+            print("BG Removal: Using original alpha channel from input image.")
+            final_applied_alpha_pil = Image.fromarray(original_alpha_channel_np)
         else:
-            alpha_for_quantized = Image.new('L', quantized_pil_final_rgba.size, 255)
-            quantized_pil_final_rgba.putalpha(alpha_for_quantized)
+            print("BG Removal: No specific removal, using full opaque alpha.")
+            final_applied_alpha_pil = Image.new('L', (w, h), 255)
         
-        bg_removed_colored_char_pil = quantized_pil_final_rgba.copy()
+        # --- Create Final RGBA Output Image (Colored Preview / BG Removed) ---
+        quantized_content_pil_rgb = opencv_to_pil(quantized_img_content_bgr)
+        final_output_image_pil = quantized_content_pil_rgb.convert("RGBA")
 
-        # 5. Generate Line Art (PNG) using Canny Edges
-        line_art_pil_for_png = Image.new("RGBA", (w, h), (255, 255, 255, 255))
-        gray_quantized = cv2.cvtColor(quantized_img_cv_bgr, cv2.COLOR_BGR2GRAY)
-        
-        # Canny thresholds based on sensitivity
-        canny_t1, canny_t2 = 30, 100 # Medium (default)
-        if line_sensitivity == 'low': # Fewer, potentially thicker lines
-            canny_t1, canny_t2 = 20, 50
-        elif line_sensitivity == 'high': # More, potentially thinner lines
-            canny_t1, canny_t2 = 50, 150
-        
-        # Optional blur before Canny
-        # gray_quantized_blurred = cv2.GaussianBlur(gray_quantized, (3,3), 0) 
-        # edges_cv = cv2.Canny(gray_quantized_blurred, threshold1=canny_t1, threshold2=canny_t2)
-        edges_cv = cv2.Canny(gray_quantized, threshold1=canny_t1, threshold2=canny_t2)
+        if final_applied_alpha_pil.size == final_output_image_pil.size:
+            final_output_image_pil.putalpha(final_applied_alpha_pil)
+        else:
+            print(f"Warning: Alpha channel size {final_applied_alpha_pil.size} mismatch with image content size {final_output_image_pil.size}. Applying opaque fallback alpha.")
+            fallback_alpha = Image.new('L', final_output_image_pil.size, 255)
+            final_output_image_pil.putalpha(fallback_alpha)
 
-        inverted_edges_cv = cv2.bitwise_not(edges_cv)
-        pil_edges_rgb = opencv_to_pil(cv2.cvtColor(inverted_edges_cv, cv2.COLOR_GRAY2RGB))
-        
-        edge_data = pil_edges_rgb.getdata()
-        newData = []
-        for item_r, item_g, item_b in edge_data:
-            if item_r == 0 and item_g == 0 and item_b == 0: # Black line
-                newData.append((0, 0, 0, 255))
-            else: # White background
-                newData.append((255, 255, 255, 0)) # Transparent
-        
-        pil_edges_transparent_bg = Image.new("RGBA", pil_edges_rgb.size)
-        pil_edges_transparent_bg.putdata(newData)
-        line_art_pil_for_png.paste(pil_edges_transparent_bg, (0,0), pil_edges_transparent_bg)
+        # --- Line Art and Numbering ---
+        line_thickness = 1
+        base_min_area_for_numbering = max(30, font_size_param * font_size_param * 0.3) 
+        if line_sensitivity_str == 'low':
+            line_thickness = 2
+            min_contour_area_for_numbering = base_min_area_for_numbering * 1.5 
+        elif line_sensitivity_str == 'high':
+            min_contour_area_for_numbering = base_min_area_for_numbering * 0.7
+        else: # Medium
+            min_contour_area_for_numbering = base_min_area_for_numbering
+
+        line_art_pil_for_png = Image.new("RGBA", (w, h), (255, 255, 255, 0)) # Transparent BG
         draw_png = ImageDraw.Draw(line_art_pil_for_png)
+        current_font = get_font(font_size_param)
+        if current_font is None:
+            print("CRITICAL: No font available for drawing text. Numbers will be missing.")
 
-        # 6. Number Placement
-        current_font_pil = get_font(font_size_param) # Ensure font is loaded once
-        min_contour_area_for_numbering = max(50, font_size_param * font_size_param * 1.0)
         all_contours_for_svg = []
-        all_texts_for_svg = []    
+        all_texts_for_svg = []
 
-        for i, color_bgr_val_np in enumerate(current_palette_bgr):
-            mask = cv2.inRange(quantized_img_cv_bgr, color_bgr_val_np, color_bgr_val_np)
+        # Iterate through the final palette (current_processing_palette_bgr) for numbering
+        for i, color_bgr_val in enumerate(current_processing_palette_bgr):
+            # Create mask from the final processed content (quantized_img_content_bgr)
+            mask = cv2.inRange(quantized_img_content_bgr, np.array(color_bgr_val), np.array(color_bgr_val))
             contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             color_number_str = str(i + 1)
 
             for contour in contours:
-                contour_area = cv2.contourArea(contour)
-                if contour_area > 10: 
-                     all_contours_for_svg.append(contour.copy())
+                contour_area_val = cv2.contourArea(contour)
+                if contour_area_val > 5: # Threshold for drawing lines
+                    all_contours_for_svg.append(contour)
+                    pil_contour_points = [tuple(p[0]) for p in contour]
+                    if len(pil_contour_points) > 1:
+                        draw_png.line(pil_contour_points + [pil_contour_points[0]], fill="black", width=line_thickness)
 
-                if contour_area > min_contour_area_for_numbering:
+                if contour_area_val > min_contour_area_for_numbering: # Threshold for placing numbers
                     M = cv2.moments(contour)
                     if M["m00"] != 0:
                         cx = int(M["m10"] / M["m00"])
                         cy = int(M["m01"] / M["m00"])
-                        
-                        dist_to_edge = cv2.pointPolygonTest(contour, (float(cx), float(cy)), True)
-                        tx, ty = cx, cy
-                        
-                        if dist_to_edge < font_size_param * 0.5:
-                            x_br, y_br, w_br, h_br = cv2.boundingRect(contour)
-                            alt_tx, alt_ty = x_br + w_br // 2, y_br + h_br // 2
-                            alt_dist_to_edge = cv2.pointPolygonTest(contour, (float(alt_tx), float(alt_ty)), True)
-                            if alt_dist_to_edge > dist_to_edge and alt_dist_to_edge > font_size_param * 0.3:
-                                tx, ty = alt_tx, alt_ty
-                                dist_to_edge = alt_dist_to_edge
-                        
-                        if dist_to_edge > - (font_size_param * 0.2):
-                            try:
-                                bbox = draw_png.textbbox((tx, ty), color_number_str, font=current_font_pil, anchor="mm")
-                                text_x_png = tx - (bbox[2] - bbox[0]) // 2
-                                text_y_png = ty - (bbox[3] - bbox[1]) // 2
-                                draw_png.text((text_x_png, text_y_png), color_number_str, fill="black", font=current_font_pil)
-                                all_texts_for_svg.append({'text': color_number_str, 'x': tx, 'y': ty, 'size': font_size_param})
-                            except Exception as e_font:
-                                app.logger.error(f"Error drawing text with Pillow: {e_font}. Font: {current_font_pil}")
-                                # Fallback with OpenCV
-                                temp_cv_img_for_text_np = np.array(line_art_pil_for_png.convert("RGB"))
-                                temp_cv_img_for_text_np = cv2.cvtColor(temp_cv_img_for_text_np, cv2.COLOR_RGB2BGR)
-                                cv2.putText(temp_cv_img_for_text_np, color_number_str, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_size_param / 25.0, (0,0,0), 1, cv2.LINE_AA)
-                                line_art_pil_for_png = opencv_to_pil(temp_cv_img_for_text_np).convert("RGBA")
-                                draw_png = ImageDraw.Draw(line_art_pil_for_png)
-                                all_texts_for_svg.append({'text': color_number_str, 'x': tx, 'y': ty, 'size': font_size_param})
-                        else:
-                            app.logger.info(f"Skipping number for region {color_number_str} (color {color_bgr_val_np}) due to placement. Area: {contour_area:.0f}, Dist: {dist_to_edge:.1f}")
+                        if cv2.pointPolygonTest(contour, (cx, cy), False) >= 0:
+                            if current_font:
+                                try: # Add try-except for text drawing as it can be sensitive to font issues
+                                    bbox = draw_png.textbbox((cx, cy), color_number_str, font=current_font, anchor="mm")
+                                    text_x_png = cx - (bbox[2] - bbox[0]) // 2
+                                    text_y_png = cy - (bbox[3] - bbox[1]) // 2
+                                    draw_png.text((text_x_png, text_y_png), color_number_str, fill="black", font=current_font)
+                                except Exception as font_exc:
+                                    print(f"Error drawing text for number {color_number_str}: {font_exc}")
+
+                            all_texts_for_svg.append({'text': color_number_str, 'x': cx, 'y': cy, 'size': font_size_param})
         
-        # 7. Prepare Final Outputs
-        quantized_image_b64 = image_to_base64(quantized_pil_final_rgba)
+        # --- Prepare outputs ---
+        quantized_image_b64 = image_to_base64(final_output_image_pil)
+        # The "BG Removed Character" is essentially the same as the "Colored Preview" 
+        # now that background removal directly affects the alpha of the preview.
+        bg_removed_char_b64 = quantized_image_b64 
+        
         line_art_png_b64 = image_to_base64(line_art_pil_for_png)
-        bg_removed_char_b64 = image_to_base64(bg_removed_colored_char_pil)
         line_art_svg_content = generate_svg_content(w, h, all_contours_for_svg, all_texts_for_svg)
 
         return jsonify({
@@ -226,14 +230,14 @@ def process_image_route():
             "line_art_png_b64": line_art_png_b64,
             "line_art_svg_content": line_art_svg_content,
             "bg_removed_char_b64": bg_removed_char_b64,
-            "palette_rgb": final_palette_rgb,
+            "palette_rgb": final_display_palette_rgb, # Use the palette corresponding to the final image content
             "image_width": w,
             "image_height": h
         })
 
     except Exception as e:
         app.logger.error(f"Error processing image: {e}", exc_info=True)
-        return jsonify({"error": f"An internal error occurred: {str(e)}"}), 500
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

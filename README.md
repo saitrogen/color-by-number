@@ -59,6 +59,7 @@
 ![Application Screenshot](docs/img2.png)
 
 
+
 ## Workflow Overview
 
 1.  **Client-Side (Browser):**
