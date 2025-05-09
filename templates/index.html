@@ -14,76 +14,108 @@
         <input type="file" id="imageUpload" accept="image/png, image/jpeg, image/gif">
         <img id="originalImagePreview" src="#" alt="Original Preview" style="display:none;"/>
 
-        <fieldset class="settings-group">
-            <legend>Color & Detail</legend>
-            <label for="numColors">Number of Colors (2-32):</label>
-            <input type="number" id="numColors" value="8" min="2" max="32">
-            
-            <label for="lineSensitivity">Line Detail:</label>
-            <select id="lineSensitivity">
-                <option value="medium" selected>Medium</option>
-                <option value="low">Low (Fewer/Bolder Lines)</option>
-                <option value="high">High (More/Finer Lines)</option>
-            </select>
-        </fieldset>
-
-        <fieldset class="settings-group">
-            <legend>Numbering</legend>
-            <label for="fontSize">Number Font Size (px, e.g., 10-30):</label>
-            <input type="number" id="fontSize" value="15" min="8" max="50">
-        </fieldset>
-        
-        <fieldset class="settings-group">
-            <legend>Advanced Options</legend>
-            <div class="checkbox-group">
-                <input type="checkbox" id="mergeSmallRegions" name="mergeSmallRegions">
-                <label for="mergeSmallRegions">Merge small regions</label>
-            </div>
-            <div id="mergeOptions" style="display:none; margin-left: 20px; margin-top: 10px; margin-bottom: 0;">
-                <label for="minMergeAreaPercent" style="font-size: 0.9em;" title="Regions smaller than this percentage of the image will be merged.">Min area to keep (% of total):</label>
-                <input type="number" id="minMergeAreaPercent" value="0.1" step="0.05" min="0.01" max="5" style="width: 120px; padding: 8px;">
-            </div>
-        </fieldset>
-
-        <fieldset class="settings-group">
-            <legend>Background Removal (Optional)</legend>
-            <div class="checkbox-group">
-                <input type="checkbox" id="enableBgRemoval" name="enableBgRemoval">
-                <label for="enableBgRemoval">Attempt background removal by color selection</label>
-            </div>
-            <div id="bgRemovalOptions" style="margin-left: 20px; margin-top: 10px; display:none;">
-                <div id="bgColorPickerHelp" style="font-size: 0.85em; margin-bottom: 10px;">
-                    Click on the background color in the original image preview above to select it.
-                </div>
-                <input type="hidden" id="selectedBgColor" name="selectedBgColor"> <!-- Store selected RGB -->
-                <div id="selectedColorDisplay" style="margin-bottom: 10px; display:none;">
-                    Selected BG Color: 
-                    <span id="bgColorSwatch" style="display:inline-block; width:20px; height:20px; border:1px solid black; vertical-align: middle;"></span>
-                    <span id="bgColorRgb" style="margin-left:5px;"></span>
-                    <button type="button" id="clearBgColor" style="width:auto; font-size:0.8em; padding: 3px 6px; margin-left:10px; vertical-align: middle;">Clear</button>
-                </div>
-                <label for="bgColorTolerance" style="font-size: 0.9em;">BG Color Tolerance (0-100):</label>
-                <input type="number" id="bgColorTolerance" value="30" min="0" max="100" style="width: 120px; padding: 8px;">
-                 <div style="font-size:0.8em; color: #666;">Higher values remove more colors similar to the selection.</div>
-            </div>
-            <div class="checkbox-group" style="margin-top:15px;"> <!-- Add some top margin -->
-                <input type="checkbox" id="enableSmoothing" name="enableSmoothing">
-                <label for="enableSmoothing">Smooth quantized colors (reduces graininess)</label>
-            </div>
-            <div id="smoothingOptions" style="display:none; margin-left: 20px; margin-top: 10px; margin-bottom: 0;">
-                <label for="smoothingKernelSize" style="font-size: 0.9em;">Smoothness level (kernel size):</label>
-                <select id="smoothingKernelSize" style="width: 120px; padding: 8px;">
-                    <option value="3" selected>Low (3x3)</option> <!-- Default to Low -->
-                    <option value="5">Medium (5x5)</option>
-                    <option value="7">High (7x7)</option>
+        <!-- Settings -->
+        <div id="settingsContainer">
+            <fieldset class="settings-group">
+                <legend>Color & Detail</legend>
+                <label for="numColors">Number of Colors (2-32):</label>
+                <input type="number" id="numColors" value="8" min="2" max="32">
+                
+                <label for="lineSensitivity">Line Detail:</label>
+                <select id="lineSensitivity">
+                    <option value="medium" selected>Medium</option>
+                    <option value="low">Low (Fewer/Bolder Lines)</option>
+                    <option value="high">High (More/Finer Lines)</option>
                 </select>
-                <div style="font-size:0.8em; color: #666;">Higher values provide more smoothing but can blur details. Applied before merging regions.</div>
-            </div>
-        </fieldset>
+            </fieldset>
 
-        <button id="processButton" disabled>Generate Color by Number</button>
-        <div class="loader" id="loader"></div>
-        <div class="error-message" id="errorMessage"></div>
+            <fieldset class="settings-group">
+                <legend>Numbering & Output</legend>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="generateNumbers" name="generateNumbers" checked>
+                        <label for="generateNumbers">Include Numbers in Line Art</label>
+                    </div>
+                    <label for="fontSize" style="margin-top: 10px;">Number Font Size (if included):</label>
+                    <input type="number" id="fontSize" value="15" min="8" max="50">
+            </fieldset>
+            
+            <fieldset class="settings-group">
+                <legend>Advanced Options</legend>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="mergeSmallRegions" name="mergeSmallRegions">
+                    <label for="mergeSmallRegions">Merge small regions</label>
+                </div>
+                <div id="mergeOptions" style="display:none; margin-left: 20px; margin-top: 10px; margin-bottom: 0;">
+                    <label for="minMergeAreaPercent" style="font-size: 0.9em;" title="Regions smaller than this percentage of the image will be merged.">Min area to keep (% of total):</label>
+                    <input type="number" id="minMergeAreaPercent" value="0.1" step="0.05" min="0.01" max="5" style="width: 120px; padding: 8px;">
+                </div>
+            </fieldset>
+
+            <fieldset class="settings-group">
+                <legend>Background Removal (Optional)</legend>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enableBgRemoval" name="enableBgRemoval">
+                    <label for="enableBgRemoval">Attempt background removal by color selection</label>
+                </div>
+                <div id="bgRemovalOptions" style="margin-left: 20px; margin-top: 10px; display:none;">
+                    <div id="bgColorPickerHelp" style="font-size: 0.85em; margin-bottom: 10px;">
+                        Click on the background color in the original image preview above to select it.
+                    </div>
+                    <input type="hidden" id="selectedBgColor" name="selectedBgColor"> <!-- Store selected RGB -->
+                    <div id="selectedColorDisplay" style="margin-bottom: 10px; display:none;">
+                        Selected BG Color: 
+                        <span id="bgColorSwatch" style="display:inline-block; width:20px; height:20px; border:1px solid black; vertical-align: middle;"></span>
+                        <span id="bgColorRgb" style="margin-left:5px;"></span>
+                        <button type="button" id="clearBgColor" style="width:auto; font-size:0.8em; padding: 3px 6px; margin-left:10px; vertical-align: middle;">Clear</button>
+                    </div>
+                    <label for="bgColorTolerance" style="font-size: 0.9em;">BG Color Tolerance (0-100):</label>
+                    <input type="number" id="bgColorTolerance" value="30" min="0" max="100" style="width: 120px; padding: 8px;">
+                    <div style="font-size:0.8em; color: #666;">Higher values remove more colors similar to the selection.</div>
+                </div>
+                <div class="checkbox-group" style="margin-top:15px;"> <!-- Add some top margin -->
+                    <input type="checkbox" id="enableSmoothing" name="enableSmoothing">
+                    <label for="enableSmoothing">Smooth quantized colors (reduces graininess)</label>
+                </div>
+                <div id="smoothingOptions" style="display:none; margin-left: 20px; margin-top: 10px; margin-bottom: 0;">
+                    <label for="smoothingKernelSize" style="font-size: 0.9em;">Smoothness level (kernel size):</label>
+                    <select id="smoothingKernelSize" style="width: 120px; padding: 8px;">
+                        <option value="3" selected>Low (3x3)</option> <!-- Default to Low -->
+                        <option value="5">Medium (5x5)</option>
+                        <option value="7">High (7x7)</option>
+                    </select>
+                    <div style="font-size:0.8em; color: #666;">Higher values provide more smoothing but can blur details. Applied before merging regions.</div>
+                </div>
+            </fieldset>
+            <fieldset class="settings-group">
+                <legend>Select Outputs to Generate</legend>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="genColoredPreview" name="genColoredPreview" checked>
+                    <label for="genColoredPreview">Colored Preview (PNG)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="genBgRemoved" name="genBgRemoved" checked>
+                    <label for="genBgRemoved">BG Removed Character (PNG)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="genLineArtPng" name="genLineArtPng" checked>
+                    <label for="genLineArtPng">Line Art (PNG)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="genLineArtSvg" name="genLineArtSvg" checked>
+                    <label for="genLineArtSvg">Line Art (SVG)</label>
+                </div>
+            </fieldset>
+
+            <button id="processButton" disabled>Generate Color by Number</button>
+            <button id="cancelProcessButton" style="display:none; background-color: #dc3545;">Cancel Processing</button>
+            <div class="loader" id="loader"></div>
+            <div class="error-message" id="errorMessage"></div>
+            
+            <div id="logContainer" style="margin-top: 15px; padding: 10px; border: 1px solid #eee; background-color: #f8f8f8; height: 100px; overflow-y: auto; font-size: 0.85em; display:none;">
+                <strong>Processing Log:</strong><br>
+                <div id="logMessages"></div>
+            </div>
+        </div>
     </div>
 
     <div class="outputs">
